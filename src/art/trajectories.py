@@ -4,7 +4,6 @@ import traceback
 from contextlib import asynccontextmanager
 from datetime import datetime
 from typing import (
-    Annotated,
     Any,
     AsyncGenerator,
     Awaitable,
@@ -16,7 +15,6 @@ from typing import (
 
 import pydantic
 from openai.types.chat.chat_completion import Choice
-from pydantic import SkipValidation
 
 from .types import Messages, MessagesAndChoices, Tools
 
@@ -30,7 +28,7 @@ class PydanticException(pydantic.BaseModel):
 
 
 class History(pydantic.BaseModel):
-    messages_and_choices: Annotated[MessagesAndChoices, SkipValidation]
+    messages_and_choices: MessagesAndChoices
     tools: Tools | None = None
 
     def messages(self) -> Messages:
@@ -38,7 +36,7 @@ class History(pydantic.BaseModel):
 
 
 class Trajectory(pydantic.BaseModel):
-    messages_and_choices: Annotated[MessagesAndChoices, SkipValidation]
+    messages_and_choices: MessagesAndChoices
     tools: Tools | None = None
     additional_histories: list[History] = []
     reward: float
@@ -175,7 +173,6 @@ class TrajectoryGroup(pydantic.BaseModel):
 
     def __copy__(self):
         """Support for copy.copy()"""
-        import copy
 
         # Create a new instance using the constructor
         # Pass shallow copies of the lists to avoid shared mutation

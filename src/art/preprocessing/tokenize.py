@@ -106,6 +106,17 @@ def tokenize_trajectory_groups(
                 )
             )
         )
+        first_non_nan_index = min(
+            (
+                next(
+                    (i for i, lp in enumerate(r.logprobs) if not math.isnan(lp)),
+                    len(r.logprobs),
+                )
+                for r in results
+            ),
+            default=0,
+        )
+        prompt_length = max(min(prompt_length, first_non_nan_index) - 1, 0)
         # Set the prompt id and length
         for result in results:
             result.prompt_id = prompt_id
@@ -148,6 +159,7 @@ def tokenize_trajectory(
         tokenizer.apply_chat_template(
             cast(list[dict], messages),
             tools=history.tools,  # type: ignore
+            continue_final_message=True,
             tokenize=False,
         ),
     )
@@ -156,6 +168,7 @@ def tokenize_trajectory(
         tokenizer.apply_chat_template(
             cast(list[dict], messages),
             tools=history.tools,  # type: ignore
+            continue_final_message=True,
         ),
     )
     sentinal_token_id = max(
@@ -181,6 +194,7 @@ def tokenize_trajectory(
                 ],
             ),
             tools=history.tools,  # type: ignore
+            continue_final_message=True,
         ),
     )
     assistant_mask: list[int] = [0] * len(token_ids)
