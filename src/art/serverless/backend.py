@@ -158,6 +158,7 @@ class ServerlessBackend(Backend):
                 epsilon=dev_config.get("epsilon"),
                 epsilon_high=dev_config.get("epsilon_high"),
                 importance_sampling_level=dev_config.get("importance_sampling_level"),
+                kimi_k2_tau=dev_config.get("kimi_k2_tau"),
                 learning_rate=config.learning_rate,
                 max_negative_advantage_importance_sampling_weight=dev_config.get(
                     "max_negative_advantage_importance_sampling_weight"

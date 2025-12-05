@@ -56,6 +56,7 @@ class ExperimentalTrainingConfig(TypedDict, total=False):
     importance_sampling_level: (
         Literal["token", "sequence", "average", "geometric_average"] | None
     )
+    kimi_k2_tau: float | None
     learning_rate: float | None
     max_negative_advantage_importance_sampling_weight: float | None
     ppo: bool | None
