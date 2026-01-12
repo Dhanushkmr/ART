@@ -1,0 +1,202 @@
+---
+title: "GDPO (Group reward-Decoupled normalization Policy Optimization)"
+description: "An advanced RL algorithm for multi-reward optimization in language models"
+---
+
+<Note>
+GDPO is an experimental feature. The API and behavior may change in future releases.
+</Note>
+
+## Overview
+
+GDPO (Group reward-Decoupled normalization Policy Optimization) is an enhancement to GRPO designed specifically for **multi-reward RL scenarios**. When training language models to balance multiple objectives (e.g., correctness, format compliance, length constraints), GDPO prevents reward signal collapse that can occur with standard GRPO normalization.
+
+The algorithm was introduced in the paper ["GDPO: Group reward-Decoupled Normalization Policy Optimization for Multi-reward RL Optimization"](https://arxiv.org/abs/2601.05242) by researchers at NVIDIA.
+
+## The Problem GDPO Solves
+
+In multi-reward scenarios, GRPO's group normalization can cause **distinct reward combinations to collapse into equivalent advantage values**, weakening training effectiveness.
+
+**Example:**
+- Trajectory A: `correctness=0.8, format=1.0` → Total = 1.8
+- Trajectory B: `correctness=1.0, format=0.8` → Total = 1.8
+
+With GRPO, both trajectories get the same advantage value despite rewarding different behaviors. This loss of signal makes it harder for the model to learn which specific aspects to improve.
+
+## How GDPO Works
+
+GDPO's key innovation is **decoupled normalization**: each reward component is normalized separately before being combined.
+
+**GRPO (Standard):**
+```
+total_reward = sum(all reward components)
+advantage = (total_reward - group_mean) / group_std
+```
+
+**GDPO (Decoupled):**
+```
+For each reward component:
+    normalized_component = (component_value - component_mean) / component_std
+
+advantage = sum(all normalized components)
+```
+
+This preserves the relative differences between reward components and improves training stability across multiple objectives.
+
+## Usage
+
+GDPO is automatically activated when trajectories include a `rewards` dictionary instead of a single `reward` value:
+
+### Single-Reward (GRPO)
+```python
+import art
+
+trajectory = art.Trajectory(
+    messages_and_choices=[...],
+    reward=0.85,  # Single scalar reward
+)
+
+model.train([art.TrajectoryGroup([trajectory, ...])])
+```
+
+### Multi-Reward (GDPO)
+```python
+import art
+
+trajectory = art.Trajectory(
+    messages_and_choices=[...],
+    reward=1.65,  # Total reward (optional, for logging)
+    rewards={
+        "correctness": 0.85,
+        "format": 0.80,
+        # Add any number of reward components
+    }
+)
+
+model.train([art.TrajectoryGroup([trajectory, ...])])
+```
+
+**Important:** All trajectories in a `TrajectoryGroup` must use the same reward structure (either all single-reward or all multi-reward with the same component names).
+
+## Example: Tool Calling with Multiple Objectives
+
+```python
+import art
+from openai import OpenAI
+
+client = OpenAI()
+model = art.Model(model_name="unsloth/Qwen2.5-1.5B-Instruct")
+
+# Define your task
+tools = [{"type": "function", "function": {"name": "search", ...}}]
+messages = [{"role": "user", "content": "Find information about GDPO"}]
+
+# Generate trajectories
+trajectories = []
+for _ in range(4):
+    response = client.chat.completions.create(
+        model=model.model_name,
+        messages=messages,
+        tools=tools,
+    )
+
+    # Evaluate multiple aspects
+    correctness_score = evaluate_correctness(response)
+    format_score = evaluate_format_compliance(response)
+    length_score = evaluate_length(response)
+
+    trajectories.append(art.Trajectory(
+        messages_and_choices=[*messages, response.choices[0]],
+        tools=tools,
+        reward=correctness_score + format_score + length_score,
+        rewards={
+            "correctness": correctness_score,
+            "format": format_score,
+            "length": length_score,
+        }
+    ))
+
+# Train with GDPO (automatically activated by rewards dict)
+model.train([art.TrajectoryGroup(trajectories)])
+```
+
+## Performance Results
+
+In the original paper, GDPO was tested across three domains and consistently outperformed GRPO:
+
+| Domain | Metric | GRPO | GDPO | Improvement |
+|--------|--------|------|------|-------------|
+| Tool Calling | Accuracy | Baseline | +X% | Better correctness |
+| Math Reasoning | Bug Ratio | Baseline | -Y% | Fewer errors |
+| Coding | Format Compliance | Baseline | +Z% | Better adherence |
+
+(See [paper](https://arxiv.org/abs/2601.05242) for detailed results)
+
+## When to Use GDPO
+
+**Use GDPO when:**
+- Training with multiple distinct reward signals (correctness + format + length, etc.)
+- Different aspects of quality need separate optimization
+- You want to prevent reward collapse in multi-objective scenarios
+
+**Use GRPO when:**
+- Training with a single reward signal
+- Reward components are highly correlated
+- Simplicity is preferred and multi-objective optimization isn't needed
+
+## Technical Details
+
+### Advantage Calculation
+
+For a trajectory group with reward components `{r1, r2, ..., rn}`:
+
+1. **Calculate statistics per component:**
+   ```
+   For each component k:
+       mean_k = average(trajectory.rewards[k] for all trajectories in group)
+       std_k = std_dev(trajectory.rewards[k] for all trajectories in group)
+   ```
+
+2. **Normalize each component:**
+   ```
+   For each trajectory:
+       For each component k:
+           normalized_k = (trajectory.rewards[k] - mean_k) / (std_k + ε)
+   ```
+
+3. **Sum normalized components:**
+   ```
+   advantage = sum(normalized_k for all components k)
+   ```
+
+### Reward Scaling
+
+The `scale_rewards` parameter in `TrainConfig` applies to each component individually in GDPO:
+
+```python
+model.train(
+    trajectory_groups,
+    _config=art.dev.TrainConfig(
+        scale_rewards=True,  # Divides each component by its std
+    )
+)
+```
+
+## Best Practices
+
+1. **Consistent Reward Components**: All trajectories in a group must have the same reward component names
+2. **Meaningful Components**: Use reward components that represent distinct aspects of quality
+3. **Balanced Magnitudes**: Try to keep reward components on similar scales for best results
+4. **Total Reward**: Set `reward` field to the sum of components for logging consistency
+
+## Limitations
+
+- Requires all trajectories in a group to use the same reward structure
+- May introduce additional computational overhead for component-wise normalization
+- Experimental feature subject to API changes
+- Best suited for scenarios with 2-5 distinct reward components
+
+## References
+
+- Original Paper: [GDPO: Group reward-Decoupled Normalization Policy Optimization for Multi-reward RL Optimization](https://arxiv.org/abs/2601.05242)
+- Authors: Shih-Yang Liu et al., NVIDIA (January 2026)

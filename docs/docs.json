@@ -93,7 +93,8 @@
       {
         "group": "Experimental",
         "pages": [
-          "experimental/gspo"
+          "experimental/gspo",
+          "experimental/gdpo"
         ]
       }
     ]

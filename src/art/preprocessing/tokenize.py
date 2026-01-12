@@ -56,17 +56,60 @@ def tokenize_trajectory_groups(
         if not group:
             continue
         results: list[TokenizedResult] = []
-        # Calculate GRPO group mean and standard deviation
-        reward_mean = sum(trajectory.reward for trajectory in group) / len(group)
-        reward_std = math.sqrt(
-            sum((trajectory.reward - reward_mean) ** 2 for trajectory in group)
-            / len(group)
-        )
+
+        # Check if using multi-reward GDPO or single-reward GRPO
+        use_gdpo = all(trajectory.rewards is not None for trajectory in group)
+
+        if use_gdpo:
+            # GDPO: Group reward-Decoupled normalization
+            # Collect all reward component names
+            reward_components = set()
+            for trajectory in group:
+                if trajectory.rewards:
+                    reward_components.update(trajectory.rewards.keys())
+
+            # Calculate mean and std for each reward component separately
+            component_stats: dict[str, tuple[float, float]] = {}
+            for component in reward_components:
+                component_values = [
+                    trajectory.rewards.get(component, 0.0)
+                    for trajectory in group
+                    if trajectory.rewards
+                ]
+                component_mean = sum(component_values) / len(component_values)
+                component_std = math.sqrt(
+                    sum((v - component_mean) ** 2 for v in component_values)
+                    / len(component_values)
+                )
+                component_stats[component] = (component_mean, component_std)
+        else:
+            # GRPO: Standard single-reward normalization
+            reward_mean = sum(trajectory.reward for trajectory in group) / len(group)
+            reward_std = math.sqrt(
+                sum((trajectory.reward - reward_mean) ** 2 for trajectory in group)
+                / len(group)
+            )
+            component_stats = {}
+
         for trajectory in group:
-            # Calculate GRPO advantage for this trajectory
-            advantage = trajectory.reward - reward_mean
-            if scale_rewards:
-                advantage /= reward_std + 1e-6
+            # Calculate advantage based on algorithm
+            if use_gdpo:
+                if not trajectory.rewards:
+                    continue
+                # Normalize each reward component separately, then sum (GDPO)
+                advantage = 0.0
+                for component, value in trajectory.rewards.items():
+                    component_mean, component_std = component_stats[component]
+                    normalized = value - component_mean
+                    if scale_rewards:
+                        normalized /= component_std + 1e-6
+                    advantage += normalized
+            else:
+                # GRPO advantage
+                advantage = trajectory.reward - reward_mean
+                if scale_rewards:
+                    advantage /= reward_std + 1e-6
+
             # Skip trajectories with no advantage
             if advantage == 0:
                 continue

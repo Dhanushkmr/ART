@@ -53,6 +53,7 @@ class Trajectory(pydantic.BaseModel):
     tools: Tools | None = None
     additional_histories: list[History] = []
     reward: float
+    rewards: dict[str, float] | None = None
     metrics: dict[str, float | int | bool] = {}
     auto_metrics: dict[str, float | int | bool] = {}
     metadata: dict[str, MetadataValue] = {}
