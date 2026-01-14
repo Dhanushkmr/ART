@@ -190,14 +190,16 @@ def tokenize_trajectory(
     # Find the index of the last assistant message
     last_assistant_index = -1
     for i, message in enumerate(history.messages_and_choices):
-        if isinstance(message, dict):
-            # Message dict
-            if message["role"] == "assistant" and allow_training_without_logprobs:
-                last_assistant_index = i
-        else:
-            # Choice object
-            if message.logprobs is not None or allow_training_without_logprobs:
-                last_assistant_index = i
+        if (
+            isinstance(message, dict)
+            and message["role"] == "assistant"
+            and allow_training_without_logprobs
+        ):
+            last_assistant_index = i
+        elif not isinstance(message, dict) and (
+            message.logprobs or allow_training_without_logprobs
+        ):
+            last_assistant_index = i
     # If there are no trainable assistant messages, return None
     if last_assistant_index == -1:
         return None
@@ -238,7 +240,7 @@ def tokenize_trajectory(
                     (
                         message_or_choice
                         if isinstance(message_or_choice, dict)
-                        and message_or_choice["role"] != "assistant"
+                        and not message_or_choice["role"] == "assistant"
                         else {
                             "role": "assistant",
                             "content": sentinal_token,
@@ -254,7 +256,7 @@ def tokenize_trajectory(
     assistant_mask: list[int] = [0] * len(token_ids)
     logprobs = [float("nan")] * len(token_ids)
     for message in messages_and_choices:
-        if isinstance(message, dict) and message["role"] != "assistant":
+        if isinstance(message, dict) and not message["role"] == "assistant":
             continue
         start = token_ids.index(sentinal_token_id)
         end = start + 1
@@ -263,7 +265,6 @@ def tokenize_trajectory(
         except IndexError:
             end_token_id = None
         if isinstance(message, dict):
-            # Message dict
             content = message.get("content")
             assert isinstance(content, str)
             content_token_ids = tokenizer.encode(
@@ -274,7 +275,6 @@ def tokenize_trajectory(
             logprobs[start:end] = [float("nan")] * len(content_token_ids)
             assistant_mask[start:end] = [1] * len(content_token_ids)
         else:
-            # Choice object
             choice = message
             assert choice.logprobs or allow_training_without_logprobs, (
                 "Chat completion choices must have logprobs"

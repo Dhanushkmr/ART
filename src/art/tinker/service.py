@@ -213,10 +213,15 @@ class TinkerService:
                 )
         else:
             with log_timing("Creating Tinker training client"):
+                training_client_args = config.get("training_client_args", {})
+                if "rank" not in training_client_args:
+                    training_client_args["rank"] = 8
+                if "train_unembed" not in training_client_args:
+                    training_client_args["train_unembed"] = False
                 training_client = (
                     await service_client.create_lora_training_client_async(
                         base_model=self.base_model,
-                        **config.get("training_client_args", {}),
+                        **training_client_args,
                     )
                 )
             sampler_client = await self._save_checkpoint(
