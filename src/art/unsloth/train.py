@@ -78,11 +78,30 @@ def get_compute_loss_fn(trainer: "GRPOTrainer") -> Callable[..., torch.Tensor]:
         else:
             inputs.pop("image_grid_thw", None)
 
+        # Extract is_gdpo flag before moving tensors (it's a bool, not a tensor)
+        is_gdpo = inputs.pop("is_gdpo", False)
+
         # Move tensors to the correct device
         inputs = {
             key: tensor.to(trainer.accelerator.device)  # type: ignore
             for key, tensor in inputs.items()
         }
+
+        # Apply GDPO batch normalization if enabled
+        if is_gdpo and _config.get("gdpo_batch_norm", True):
+            advantages = inputs["advantages"]
+            mask = inputs["assistant_mask"]
+            # Get masked advantages (only where we train)
+            masked_advantages = advantages[mask]
+            if masked_advantages.numel() > 0:
+                batch_mean = masked_advantages.mean()
+                batch_std = masked_advantages.std()
+                # Normalize advantages where assistant_mask is True
+                inputs["advantages"] = torch.where(
+                    mask,
+                    (advantages - batch_mean) / (batch_std + 1e-4),
+                    advantages,
+                )
 
         accelerate_mixed_precision = os.environ.get("ACCELERATE_MIXED_PRECISION")
         force_float32 = os.environ.get("UNSLOTH_FORCE_FLOAT32")

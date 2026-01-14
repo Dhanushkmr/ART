@@ -175,6 +175,7 @@ class LocalBackend(Backend):
         allow_training_without_logprobs: bool,
         scale_rewards: bool,
         plot_tensors: bool,
+        reward_weights: dict[str, float] | None = None,
     ) -> PackedTensors | None:
         if model.base_model not in self._tokenizers:
             self._tokenizers[model.base_model] = AutoTokenizer.from_pretrained(
@@ -195,6 +196,7 @@ class LocalBackend(Backend):
                 allow_training_without_logprobs,
                 scale_rewards,
                 image_processor=self._image_processors[model.base_model],
+                reward_weights=reward_weights,
             )
         )
         if not tokenized_results:
@@ -459,6 +461,7 @@ class LocalBackend(Backend):
             ),
             scale_rewards=dev_config.get("scale_rewards", True),
             plot_tensors=dev_config.get("plot_tensors", False),
+            reward_weights=dev_config.get("reward_weights"),
         )
         if packed_tensors is None:
             print(

@@ -363,3 +363,287 @@ def test_gdpo_requires_consistent_components(tokenizer):
 
     # Should still work with GRPO fallback
     assert len(results) == 2, "Should fall back to GRPO"
+
+
+def test_gdpo_reward_weights(tokenizer):
+    """Test that reward weights are correctly applied in GDPO."""
+
+    trajectory_a = Trajectory(
+        messages_and_choices=[
+            {"role": "user", "content": "Test"},
+            Choice(
+                finish_reason="stop",
+                index=0,
+                logprobs=None,
+                message=ChatCompletionMessage(
+                    role="assistant",
+                    content="A",
+                    refusal=None,
+                ),
+            ),
+        ],
+        reward=2.0,
+        rewards={
+            "correctness": 1.0,
+            "format": 1.0,
+        },
+    )
+
+    trajectory_b = Trajectory(
+        messages_and_choices=[
+            {"role": "user", "content": "Test"},
+            Choice(
+                finish_reason="stop",
+                index=0,
+                logprobs=None,
+                message=ChatCompletionMessage(
+                    role="assistant",
+                    content="B",
+                    refusal=None,
+                ),
+            ),
+        ],
+        reward=0.0,
+        rewards={
+            "correctness": 0.0,
+            "format": 0.0,
+        },
+    )
+
+    group = TrajectoryGroup([trajectory_a, trajectory_b])
+
+    # Test without weights (equal weighting)
+    results_no_weights = list(
+        tokenize_trajectory_groups(
+            tokenizer,
+            [group],
+            allow_training_without_logprobs=True,
+            scale_rewards=True,
+            reward_weights=None,
+        )
+    )
+
+    # Test with weights that emphasize correctness (2.0) over format (0.5)
+    results_weighted = list(
+        tokenize_trajectory_groups(
+            tokenizer,
+            [group],
+            allow_training_without_logprobs=True,
+            scale_rewards=True,
+            reward_weights={"correctness": 2.0, "format": 0.5},
+        )
+    )
+
+    # Both should have 2 results
+    assert len(results_no_weights) == 2
+    assert len(results_weighted) == 2
+
+    # Without weights: each component contributes equally
+    # correctness: (1.0-0.5)/0.5 = 1.0 for A, -1.0 for B
+    # format: (1.0-0.5)/0.5 = 1.0 for A, -1.0 for B
+    # Total: A=2.0, B=-2.0
+    no_weight_advantages = sorted([r.advantage for r in results_no_weights])
+    assert math.isclose(no_weight_advantages[0], -2.0, abs_tol=0.01)
+    assert math.isclose(no_weight_advantages[1], 2.0, abs_tol=0.01)
+
+    # With weights: correctness*2.0 + format*0.5
+    # correctness: (1.0-0.5)/0.5 * 2.0 = 2.0 for A, -2.0 for B
+    # format: (1.0-0.5)/0.5 * 0.5 = 0.5 for A, -0.5 for B
+    # Total: A=2.5, B=-2.5
+    weighted_advantages = sorted([r.advantage for r in results_weighted])
+    assert math.isclose(weighted_advantages[0], -2.5, abs_tol=0.01)
+    assert math.isclose(weighted_advantages[1], 2.5, abs_tol=0.01)
+
+
+def test_gdpo_sets_is_gdpo_flag(tokenizer):
+    """Test that GDPO results have is_gdpo=True."""
+
+    trajectory_a = Trajectory(
+        messages_and_choices=[
+            {"role": "user", "content": "Test"},
+            Choice(
+                finish_reason="stop",
+                index=0,
+                logprobs=None,
+                message=ChatCompletionMessage(
+                    role="assistant",
+                    content="A",
+                    refusal=None,
+                ),
+            ),
+        ],
+        reward=1.0,
+        rewards={"correctness": 1.0},
+    )
+
+    trajectory_b = Trajectory(
+        messages_and_choices=[
+            {"role": "user", "content": "Test"},
+            Choice(
+                finish_reason="stop",
+                index=0,
+                logprobs=None,
+                message=ChatCompletionMessage(
+                    role="assistant",
+                    content="B",
+                    refusal=None,
+                ),
+            ),
+        ],
+        reward=0.0,
+        rewards={"correctness": 0.0},
+    )
+
+    group = TrajectoryGroup([trajectory_a, trajectory_b])
+
+    # GDPO mode
+    gdpo_results = list(
+        tokenize_trajectory_groups(
+            tokenizer,
+            [group],
+            allow_training_without_logprobs=True,
+            scale_rewards=False,
+        )
+    )
+
+    # All GDPO results should have is_gdpo=True
+    for result in gdpo_results:
+        assert result.is_gdpo is True, "GDPO results should have is_gdpo=True"
+
+
+def test_grpo_sets_is_gdpo_flag_false(tokenizer):
+    """Test that GRPO results have is_gdpo=False."""
+
+    trajectory_a = Trajectory(
+        messages_and_choices=[
+            {"role": "user", "content": "Test"},
+            Choice(
+                finish_reason="stop",
+                index=0,
+                logprobs=None,
+                message=ChatCompletionMessage(
+                    role="assistant",
+                    content="A",
+                    refusal=None,
+                ),
+            ),
+        ],
+        reward=1.0,
+        # No rewards dict - GRPO mode
+    )
+
+    trajectory_b = Trajectory(
+        messages_and_choices=[
+            {"role": "user", "content": "Test"},
+            Choice(
+                finish_reason="stop",
+                index=0,
+                logprobs=None,
+                message=ChatCompletionMessage(
+                    role="assistant",
+                    content="B",
+                    refusal=None,
+                ),
+            ),
+        ],
+        reward=0.0,
+    )
+
+    group = TrajectoryGroup([trajectory_a, trajectory_b])
+
+    # GRPO mode
+    grpo_results = list(
+        tokenize_trajectory_groups(
+            tokenizer,
+            [group],
+            allow_training_without_logprobs=True,
+            scale_rewards=False,
+        )
+    )
+
+    # All GRPO results should have is_gdpo=False
+    for result in grpo_results:
+        assert result.is_gdpo is False, "GRPO results should have is_gdpo=False"
+
+
+def test_packed_tensors_preserves_is_gdpo():
+    """Test that is_gdpo flag is preserved through packing."""
+    from art.preprocessing.pack import packed_tensors_from_tokenized_results
+    from art.preprocessing.tokenize import TokenizedResult
+
+    # Create mock tokenized results with is_gdpo=True
+    mock_results = [
+        TokenizedResult(
+            advantage=1.0,
+            chat="test",
+            tokens=["a", "b", "c"],
+            token_ids=[1, 2, 3],
+            input_pos=[0, 1, 2],
+            assistant_mask=[0, 1, 1],
+            logprobs=[float("nan"), 0.1, 0.2],
+            pixel_values=None,
+            image_grid_thw=None,
+            weight=1.0,
+            prompt_id=1,
+            prompt_length=1,
+            is_gdpo=True,
+        ),
+        TokenizedResult(
+            advantage=-1.0,
+            chat="test",
+            tokens=["a", "b", "c"],
+            token_ids=[1, 2, 3],
+            input_pos=[0, 1, 2],
+            assistant_mask=[0, 1, 1],
+            logprobs=[float("nan"), 0.1, 0.2],
+            pixel_values=None,
+            image_grid_thw=None,
+            weight=1.0,
+            prompt_id=2,
+            prompt_length=1,
+            is_gdpo=True,
+        ),
+    ]
+
+    packed = packed_tensors_from_tokenized_results(
+        mock_results,
+        seq_len=8,
+        pad_token_id=-100,
+    )
+
+    assert packed["is_gdpo"] is True, (
+        "is_gdpo should be True when any result has is_gdpo=True"
+    )
+
+
+def test_packed_tensors_is_gdpo_false_for_grpo():
+    """Test that is_gdpo is False when all results are GRPO."""
+    from art.preprocessing.pack import packed_tensors_from_tokenized_results
+    from art.preprocessing.tokenize import TokenizedResult
+
+    # Create mock tokenized results with is_gdpo=False (GRPO)
+    mock_results = [
+        TokenizedResult(
+            advantage=1.0,
+            chat="test",
+            tokens=["a", "b", "c"],
+            token_ids=[1, 2, 3],
+            input_pos=[0, 1, 2],
+            assistant_mask=[0, 1, 1],
+            logprobs=[float("nan"), 0.1, 0.2],
+            pixel_values=None,
+            image_grid_thw=None,
+            weight=1.0,
+            prompt_id=1,
+            prompt_length=1,
+            is_gdpo=False,
+        ),
+    ]
+
+    packed = packed_tensors_from_tokenized_results(
+        mock_results,
+        seq_len=8,
+        pad_token_id=-100,
+    )
+
+    assert packed["is_gdpo"] is False, "is_gdpo should be False for GRPO results"

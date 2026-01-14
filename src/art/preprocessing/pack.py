@@ -21,6 +21,7 @@ class PackedTensors(TypedDict):
     weights: torch.Tensor
     pixel_values: list[torch.Tensor | None]
     image_grid_thw: list[torch.Tensor | None]
+    is_gdpo: bool
 
 
 class DiskPackedTensors(TypedDict):
@@ -29,6 +30,7 @@ class DiskPackedTensors(TypedDict):
     sequence_length: int
     pixel_values: NotRequired[tuple[int, list[int]]]
     image_grid_thw: NotRequired[tuple[int, list[int]]]
+    is_gdpo: NotRequired[bool]
 
 
 def packed_tensors_from_tokenized_results(
@@ -50,8 +52,11 @@ def packed_tensors_from_tokenized_results(
     weights: list[list[float]] = [[]]
     pixel_values: list[list[torch.Tensor]] = [[]]
     image_grid_thw: list[list[torch.Tensor]] = [[]]
+    has_gdpo = False
 
     for result in tokenized_results:
+        if result.is_gdpo:
+            has_gdpo = True
         if len(result.token_ids) > seq_len and not truncate_long_results:
             if verbosity > 1:
                 print("Result is too long, skipping")
@@ -171,6 +176,7 @@ def packed_tensors_from_tokenized_results(
         "image_grid_thw": [
             torch.concat(tensors) if tensors else None for tensors in image_grid_thw
         ],
+        "is_gdpo": has_gdpo,
     }
 
 
@@ -196,6 +202,7 @@ def packed_tensors_from_dir(**kwargs: Unpack[DiskPackedTensors]) -> PackedTensor
     }
     _add_tensor_list(packed_tensors, kwargs, "pixel_values", torch.float32)
     _add_tensor_list(packed_tensors, kwargs, "image_grid_thw", torch.long)
+    packed_tensors["is_gdpo"] = kwargs.get("is_gdpo", False)
     return cast(PackedTensors, packed_tensors)
 
 
@@ -233,6 +240,7 @@ def packed_tensors_to_dir(tensors: PackedTensors, dir: str) -> DiskPackedTensors
         disk_packed_tensors["pixel_values"] = info
     if info := _get_tensor_list_info(tensors["image_grid_thw"]):
         disk_packed_tensors["image_grid_thw"] = info
+    disk_packed_tensors["is_gdpo"] = tensors.get("is_gdpo", False)
     for key, tensor in packed_tensors_from_dir(**disk_packed_tensors).items():
         if isinstance(tensor, list):
             for i, t in enumerate(tensor):

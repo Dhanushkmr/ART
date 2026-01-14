@@ -26,6 +26,7 @@ class TokenizedResult:
     weight: float = 0.0
     prompt_id: int = 0
     prompt_length: int = 0
+    is_gdpo: bool = False
 
     def without_prompt(self) -> "TokenizedResult":
         return TokenizedResult(
@@ -41,6 +42,7 @@ class TokenizedResult:
             weight=self.weight,
             prompt_id=self.prompt_id,
             prompt_length=0,
+            is_gdpo=self.is_gdpo,
         )
 
 
@@ -51,6 +53,7 @@ def tokenize_trajectory_groups(
     scale_rewards: bool,
     shuffle_group_trajectories: bool = True,
     image_processor: BaseImageProcessor | None = None,
+    reward_weights: dict[str, float] | None = None,
 ) -> Generator["TokenizedResult", None, None]:
     for group in trajectory_groups:
         if not group:
@@ -103,7 +106,11 @@ def tokenize_trajectory_groups(
                     normalized = value - component_mean
                     if scale_rewards:
                         normalized /= component_std + 1e-6
-                    advantage += normalized
+                    # Apply reward weight (default 1.0)
+                    weight = (
+                        reward_weights.get(component, 1.0) if reward_weights else 1.0
+                    )
+                    advantage += normalized * weight
             else:
                 # GRPO advantage
                 advantage = trajectory.reward - reward_mean
@@ -134,6 +141,7 @@ def tokenize_trajectory_groups(
             )
             for result in trajectory_results:
                 result.weight = weight
+                result.is_gdpo = use_gdpo
             results.extend(trajectory_results)
         # Choose a random prompt id
         prompt_id = random.randint(-(2**63), 2**63 - 1)

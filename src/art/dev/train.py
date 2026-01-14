@@ -27,3 +27,7 @@ positive advantages. Defaults to 0.0 (perfectly balanced)."""
     scale_learning_rate_by_reward_std_dev: bool
     scale_rewards: bool
     truncated_importance_sampling: float | None
+    reward_weights: dict[str, float] | None
+    """Weights for each reward component in GDPO. If None, uses equal weights."""
+    gdpo_batch_norm: bool
+    """Apply batch normalization to advantages in GDPO mode. Defaults to True."""
