@@ -171,8 +171,10 @@ async def main():
             trajectory_groups,
             config=art.TrainConfig(
                 learning_rate=5e-5,
-                scale_rewards=True,  # Scale each reward component by its std
             ),
+            _config={
+                "scale_rewards": True,  # Scale each reward component by its std
+            },
         )
 
         if step % 10 == 0:

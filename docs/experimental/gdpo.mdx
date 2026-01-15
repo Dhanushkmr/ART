@@ -150,35 +150,80 @@ In the original paper, GDPO was tested across three domains and consistently out
 
 For a trajectory group with reward components `{r1, r2, ..., rn}`:
 
-1. **Calculate statistics per component:**
+1. **Calculate statistics per component (group-wise):**
    ```
    For each component k:
        mean_k = average(trajectory.rewards[k] for all trajectories in group)
        std_k = std_dev(trajectory.rewards[k] for all trajectories in group)
    ```
 
-2. **Normalize each component:**
+2. **Normalize each component and apply weights:**
    ```
    For each trajectory:
        For each component k:
            normalized_k = (trajectory.rewards[k] - mean_k) / (std_k + ε)
+           weighted_k = normalized_k * reward_weights[k]  # default weight = 1.0
    ```
 
-3. **Sum normalized components:**
+3. **Sum weighted normalized components:**
    ```
-   advantage = sum(normalized_k for all components k)
+   pre_bn_advantage = sum(weighted_k for all components k)
+   ```
+
+4. **Apply batch normalization (during training):**
+   ```
+   batch_mean = mean(pre_bn_advantage for all samples in batch)
+   batch_std = std(pre_bn_advantage for all samples in batch)
+   advantage = (pre_bn_advantage - batch_mean) / (batch_std + ε)
    ```
 
 ### Reward Scaling
 
-The `scale_rewards` parameter in `TrainConfig` applies to each component individually in GDPO:
+The `scale_rewards` parameter applies to each component individually in GDPO:
 
 ```python
 model.train(
     trajectory_groups,
-    _config=art.dev.TrainConfig(
-        scale_rewards=True,  # Divides each component by its std
-    )
+    _config={
+        "scale_rewards": True,  # Divides each component by its std
+    }
+)
+```
+
+### Reward Weights
+
+You can weight different reward components to emphasize certain objectives over others:
+
+```python
+model.train(
+    trajectory_groups,
+    _config={
+        "scale_rewards": True,
+        "reward_weights": {
+            "correctness": 2.0,  # Weight correctness more heavily
+            "format": 0.5,
+            "length": 0.5,
+        },
+    }
+)
+```
+
+If `reward_weights` is not specified, all components are weighted equally (1.0).
+
+### Batch Normalization
+
+GDPO applies batch normalization to the combined advantages during training. This ensures:
+- Zero-mean advantages at the batch level
+- Consistent gradient scales across batches
+
+This is enabled by default and can be disabled for experimentation:
+
+```python
+model.train(
+    trajectory_groups,
+    _config={
+        "gdpo_batch_norm": False,  # Disable batch normalization (default: True)
+    }
 )
 ```
 
